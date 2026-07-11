@@ -204,37 +204,16 @@ void app_main(void)
 
     ESP_ERROR_CHECK(microlink_start(ml));
 
-    /* Wait for Tailscale connection (120s timeout, then restart) */
-    ESP_LOGI(TAG, "Connecting to Tailscale...");
-    led_tailscale_connecting();
-    int ts_retries = 0;
-    while (!microlink_is_connected(ml)) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        if (++ts_retries > 120) {
-            ESP_LOGE(TAG, "Tailscale connect timeout — restarting");
-            esp_restart();
-        }
-    }
-
-    uint32_t vpn_ip = microlink_get_vpn_ip(ml);
-    char vpn_ip_str[16];
-    microlink_ip_to_str(vpn_ip, vpn_ip_str);
-    ESP_LOGI(TAG, "Tailscale connected! VPN IP: %s", vpn_ip_str);
-    led_connected();
-
-    /* --- HTTP Dashboard Server --- */
+    /* --- Start HTTP server + monitor BEFORE Tailscale connects ---
+     * Dashboard is available on LAN IP even if Tailscale lock blocks VPN. */
     ESP_ERROR_CHECK(wol_dashboard_start(&host_list, get_vpn_ip_cb, -40));
-
-    /* --- Host Monitor Task --- */
-    wol_monitor_start(&host_list, 60);  /* Ping every 60 seconds */
-
-    /* --- Idle loop --- */
-    ESP_LOGI(TAG, "Ready! Dashboard at http://%s", vpn_ip_str);
-    ESP_LOGI(TAG, "Free heap: %lu B",
-             (unsigned long)esp_get_free_heap_size());
+    wol_monitor_start(&host_list, 60);
+    ESP_LOGI(TAG, "Dashboard ready on LAN: http://192.168.0.70");
+    ESP_LOGI(TAG, "Tailscale connecting in background...");
+    led_tailscale_connecting();
 
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(30000));
+        vTaskDelay(pdMS_TO_TICKS(60000));
 
         /* Update WiFi RSSI for dashboard status */
         wifi_ap_record_t ap_info;
@@ -244,6 +223,16 @@ void app_main(void)
 
         /* Periodic health log + Tailscale reconnect */
         if (microlink_is_connected(ml)) {
+            static bool was_connected = false;
+            if (!was_connected) {
+                uint32_t vpn_ip = microlink_get_vpn_ip(ml);
+                char ip_str[16];
+                microlink_ip_to_str(vpn_ip, ip_str);
+                ESP_LOGI(TAG, "Tailscale connected! VPN IP: %s", ip_str);
+                ESP_LOGI(TAG, "Dashboard: http://%s", ip_str);
+                led_connected();
+                was_connected = true;
+            }
             ESP_LOGI(TAG, "Health: heap=%lu psram=%lu peers=%d",
                      (unsigned long)esp_get_free_heap_size(),
                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),

@@ -11,7 +11,9 @@
 
 #include "esp_err.h"
 
-#define LED_GPIO 21    /* Change to -1 to disable */
+#define LED_GPIO 8     /* Change to -1 to disable. XIAO C3: none built-in.
+                           Super Mini C3: GPIO8 (blue, active high).
+                           Wire external LED + 220Ω: GPIO21 */
 
 /**
  * Initialize LED GPIO. Safe to call even if LED_GPIO is -1.
