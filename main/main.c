@@ -183,7 +183,9 @@ void app_main(void)
 
     ml = microlink_init(&config);
     if (!ml) {
-        ESP_LOGE(TAG, "MicroLink init failed — check PSRAM config");
+        ESP_LOGE(TAG, "MicroLink init failed — restarting");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        esp_restart();
         return;
     }
 
@@ -225,14 +227,17 @@ void app_main(void)
              (unsigned long)esp_get_free_heap_size());
 
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(10000));
+        vTaskDelay(pdMS_TO_TICKS(30000));
 
-        /* Periodic health log */
+        /* Periodic health log + Tailscale reconnect */
         if (microlink_is_connected(ml)) {
             ESP_LOGI(TAG, "Health: heap=%lu psram=%lu peers=%d",
                      (unsigned long)esp_get_free_heap_size(),
                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
                      microlink_get_peer_count(ml));
+        } else {
+            ESP_LOGW(TAG, "Tailscale disconnected — reconnecting...");
+            microlink_start(ml);
         }
     }
 }

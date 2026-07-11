@@ -41,6 +41,27 @@ static void set_cors_headers(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
 }
 
+/**
+ * Send a cJSON object as JSON response. Handles NULL (OOM) safely.
+ * Takes ownership of `obj` (cJSON_Delete is called).
+ */
+static esp_err_t send_json(httpd_req_t *req, cJSON *obj)
+{
+    char *json = cJSON_PrintUnformatted(obj);
+    cJSON_Delete(obj);
+
+    if (!json) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                            "Out of memory");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t ret = httpd_resp_send(req, json, strlen(json));
+    free(json);
+    return ret;
+}
+
 /* ---------------------------------------------------------------------------
  * GET /api/hosts — list all hosts with online state
  * --------------------------------------------------------------------------- */
@@ -67,13 +88,7 @@ static esp_err_t api_hosts_get(httpd_req_t *req)
     wol_storage_unlock();
 
     cJSON_AddItemToObject(root, "hosts", arr);
-    char *json = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-
-    httpd_resp_set_type(req, "application/json");
-    esp_err_t ret = httpd_resp_send(req, json, strlen(json));
-    free(json);
-    return ret;
+    return send_json(req, root);
 }
 
 /* ---------------------------------------------------------------------------
@@ -151,12 +166,7 @@ static esp_err_t api_hosts_post(httpd_req_t *req)
         cJSON_AddStringToObject(resp, "error", "Storage error");
     }
 
-    char *json = cJSON_PrintUnformatted(resp);
-    cJSON_Delete(resp);
-    httpd_resp_set_type(req, "application/json");
-    ret = httpd_resp_send(req, json, strlen(json));
-    free(json);
-    return ret;
+    return send_json(req, resp);
 }
 
 /* ---------------------------------------------------------------------------
@@ -204,12 +214,7 @@ static esp_err_t api_hosts_delete(httpd_req_t *req)
         cJSON_AddStringToObject(resp, "error", "Not found");
     }
 
-    char *json = cJSON_PrintUnformatted(resp);
-    cJSON_Delete(resp);
-    httpd_resp_set_type(req, "application/json");
-    ret = httpd_resp_send(req, json, strlen(json));
-    free(json);
-    return ret;
+    return send_json(req, resp);
 }
 
 /* ---------------------------------------------------------------------------
@@ -261,12 +266,7 @@ static esp_err_t api_wake_post(httpd_req_t *req)
         cJSON_AddStringToObject(resp, "error", "Host not found");
     }
 
-    char *json = cJSON_PrintUnformatted(resp);
-    cJSON_Delete(resp);
-    httpd_resp_set_type(req, "application/json");
-    esp_err_t ret = httpd_resp_send(req, json, strlen(json));
-    free(json);
-    return ret;
+    return send_json(req, resp);
 }
 
 /* ---------------------------------------------------------------------------
@@ -301,12 +301,7 @@ static esp_err_t api_status_get(httpd_req_t *req)
     cJSON_AddNumberToObject(resp, "host_count", g_host_list ? g_host_list->count : 0);
     wol_storage_unlock();
 
-    char *json = cJSON_PrintUnformatted(resp);
-    cJSON_Delete(resp);
-    httpd_resp_set_type(req, "application/json");
-    esp_err_t ret = httpd_resp_send(req, json, strlen(json));
-    free(json);
-    return ret;
+    return send_json(req, resp);
 }
 
 /* ---------------------------------------------------------------------------
