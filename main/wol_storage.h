@@ -41,6 +41,14 @@ typedef struct {
 esp_err_t wol_storage_init(void);
 
 /**
+ * Lock/unlock the host list for thread-safe access.
+ * wol_storage_lock() MUST be called before reading or modifying the list.
+ * wol_storage_unlock() MUST be called after, even on error paths.
+ */
+void wol_storage_lock(void);
+void wol_storage_unlock(void);
+
+/**
  * Load all hosts from NVS into memory list.
  * Sets count=0 and next_id=1 if no hosts saved yet.
  */

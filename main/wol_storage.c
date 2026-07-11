@@ -5,12 +5,15 @@
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "cJSON.h"
 #include "esp_log.h"
 
 static const char *TAG = "wol_storage";
+static SemaphoreHandle_t s_mutex = NULL;
 
 /* ---------------------------------------------------------------------------
  * Init
@@ -25,6 +28,10 @@ esp_err_t wol_storage_init(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    s_mutex = xSemaphoreCreateMutex();
+    if (!s_mutex) return ESP_ERR_NO_MEM;
+
     ESP_LOGI(TAG, "NVS initialized");
     return ESP_OK;
 }
@@ -46,19 +53,21 @@ static cJSON *host_to_json(const wol_host_t *h)
 
 static void json_to_host(const cJSON *obj, wol_host_t *h, uint32_t now)
 {
-    h->id       = (uint32_t)cJSON_GetObjectItem(obj, "id")->valueint;
-    h->added_at = (uint32_t)cJSON_GetObjectItem(obj, "added_at")->valueint;
+    const cJSON *jid = cJSON_GetObjectItem(obj, "id");
+    const cJSON *jat = cJSON_GetObjectItem(obj, "added_at");
+    h->id       = (jid && cJSON_IsNumber(jid)) ? (uint32_t)jid->valueint : 0;
+    h->added_at = (jat && cJSON_IsNumber(jat)) ? (uint32_t)jat->valueint : 0;
 
     const cJSON *jn = cJSON_GetObjectItem(obj, "name");
     const cJSON *jm = cJSON_GetObjectItem(obj, "mac");
     const cJSON *ji = cJSON_GetObjectItem(obj, "ip");
 
     snprintf(h->name, WOL_HOST_NAME_MAX, "%s",
-             jn && jn->valuestring ? jn->valuestring : "");
+             (jn && jn->valuestring) ? jn->valuestring : "");
     snprintf(h->mac, WOL_HOST_MAC_MAX, "%s",
-             jm && jm->valuestring ? jm->valuestring : "");
+             (jm && jm->valuestring) ? jm->valuestring : "");
     snprintf(h->ip, WOL_HOST_IP_MAX, "%s",
-             ji && ji->valuestring ? ji->valuestring : "");
+             (ji && ji->valuestring) ? ji->valuestring : "");
 
     h->online    = false;
     h->last_seen = 0;
@@ -184,12 +193,9 @@ esp_err_t wol_storage_add(wol_host_list_t *list,
 
     if (out_id) *out_id = h->id;
 
-    esp_err_t ret = wol_storage_save(list);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Added host %lu: %s (%s)",
-                 (unsigned long)h->id, h->name, h->mac);
-    }
-    return ret;
+    ESP_LOGI(TAG, "Added host %lu: %s (%s)",
+             (unsigned long)h->id, h->name, h->mac);
+    return ESP_OK;
 }
 
 esp_err_t wol_storage_remove(wol_host_list_t *list, uint32_t id)
@@ -207,11 +213,8 @@ esp_err_t wol_storage_remove(wol_host_list_t *list, uint32_t id)
     list->count--;
     memset(&list->entries[list->count], 0, sizeof(wol_host_t));
 
-    esp_err_t ret = wol_storage_save(list);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Removed host id=%lu", (unsigned long)id);
-    }
-    return ret;
+    ESP_LOGI(TAG, "Removed host id=%lu", (unsigned long)id);
+    return ESP_OK;
 }
 
 wol_host_t *wol_storage_find(wol_host_list_t *list, uint32_t id)
@@ -220,6 +223,20 @@ wol_host_t *wol_storage_find(wol_host_list_t *list, uint32_t id)
         if (list->entries[i].id == id) return &list->entries[i];
     }
     return NULL;
+}
+
+/* ---------------------------------------------------------------------------
+ * Thread safety
+ * --------------------------------------------------------------------------- */
+
+void wol_storage_lock(void)
+{
+    if (s_mutex) xSemaphoreTake(s_mutex, portMAX_DELAY);
+}
+
+void wol_storage_unlock(void)
+{
+    if (s_mutex) xSemaphoreGive(s_mutex);
 }
 
 /* ---------------------------------------------------------------------------

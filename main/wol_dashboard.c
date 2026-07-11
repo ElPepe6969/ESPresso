@@ -18,7 +18,6 @@
 #include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "cJSON.h"
@@ -30,9 +29,6 @@ static wol_host_list_t *g_host_list = NULL;
 static uint32_t (*g_get_vpn_ip)(void) = NULL;
 static int g_wifi_rssi = 0;
 static uint32_t g_start_time = 0;
-
-/* Mutex to protect host list (accessed by HTTP handlers + monitor task) */
-static SemaphoreHandle_t g_host_mutex = NULL;
 
 /* ---------------------------------------------------------------------------
  * Helpers
@@ -56,7 +52,7 @@ static esp_err_t api_hosts_get(httpd_req_t *req)
     cJSON *root = cJSON_CreateObject();
     cJSON *arr  = cJSON_CreateArray();
 
-    xSemaphoreTake(g_host_mutex, portMAX_DELAY);
+    wol_storage_lock();
     for (int i = 0; i < g_host_list->count; i++) {
         wol_host_t *h = &g_host_list->entries[i];
         cJSON *item = cJSON_CreateObject();
@@ -68,7 +64,7 @@ static esp_err_t api_hosts_get(httpd_req_t *req)
         cJSON_AddNumberToObject(item, "last_seen", h->last_seen);
         cJSON_AddItemToArray(arr, item);
     }
-    xSemaphoreGive(g_host_mutex);
+    wol_storage_unlock();
 
     cJSON_AddItemToObject(root, "hosts", arr);
     char *json = cJSON_PrintUnformatted(root);
@@ -125,11 +121,21 @@ static esp_err_t api_hosts_post(httpd_req_t *req)
     }
 
     uint32_t new_id = 0;
-    xSemaphoreTake(g_host_mutex, portMAX_DELAY);
+    wol_storage_lock();
     esp_err_t ret = wol_storage_add(g_host_list,
                                     jn->valuestring, mac, ji->valuestring,
                                     &new_id);
-    xSemaphoreGive(g_host_mutex);
+    wol_storage_unlock();
+
+    /* Persist to NVS outside the lock (NVS writes are slow) */
+    if (ret == ESP_OK) {
+        wol_storage_lock();
+        esp_err_t save_ret = wol_storage_save(g_host_list);
+        wol_storage_unlock();
+        if (save_ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to persist new host to NVS: %d", save_ret);
+        }
+    }
     cJSON_Delete(body);
 
     /* Build response */
@@ -162,7 +168,7 @@ static esp_err_t api_hosts_delete(httpd_req_t *req)
     set_cors_headers(req);
 
     /* Get ?id= parameter */
-    char id_str[16];
+    char id_str[64];
     if (httpd_req_get_url_query_str(req, id_str, sizeof(id_str)) != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing ?id=");
         return ESP_FAIL;
@@ -176,9 +182,19 @@ static esp_err_t api_hosts_delete(httpd_req_t *req)
 
     uint32_t id = (uint32_t)atoi(param);
 
-    xSemaphoreTake(g_host_mutex, portMAX_DELAY);
+    wol_storage_lock();
     esp_err_t ret = wol_storage_remove(g_host_list, id);
-    xSemaphoreGive(g_host_mutex);
+    wol_storage_unlock();
+
+    /* Persist to NVS outside the lock */
+    if (ret == ESP_OK) {
+        wol_storage_lock();
+        esp_err_t save_ret = wol_storage_save(g_host_list);
+        wol_storage_unlock();
+        if (save_ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to persist removal to NVS: %d", save_ret);
+        }
+    }
 
     cJSON *resp = cJSON_CreateObject();
     if (ret == ESP_OK) {
@@ -205,7 +221,7 @@ static esp_err_t api_wake_post(httpd_req_t *req)
     set_cors_headers(req);
 
     /* Get ?id= parameter */
-    char id_str[16];
+    char id_str[64];
     if (httpd_req_get_url_query_str(req, id_str, sizeof(id_str)) != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing ?id=");
         return ESP_FAIL;
@@ -219,7 +235,7 @@ static esp_err_t api_wake_post(httpd_req_t *req)
 
     uint32_t id = (uint32_t)atoi(param);
 
-    xSemaphoreTake(g_host_mutex, portMAX_DELAY);
+    wol_storage_lock();
     wol_host_t *h = wol_storage_find(g_host_list, id);
     cJSON *resp = cJSON_CreateObject();
 
@@ -228,7 +244,7 @@ static esp_err_t api_wake_post(httpd_req_t *req)
         char mac_copy[WOL_HOST_MAC_MAX];
         snprintf(name_copy, sizeof(name_copy), "%s", h->name);
         snprintf(mac_copy,  sizeof(mac_copy),  "%s", h->mac);
-        xSemaphoreGive(g_host_mutex);
+        wol_storage_unlock();
 
         esp_err_t send_ret = wol_send_magic_packet(mac_copy);
         if (send_ret == ESP_OK) {
@@ -240,7 +256,7 @@ static esp_err_t api_wake_post(httpd_req_t *req)
             cJSON_AddStringToObject(resp, "error", "Send failed");
         }
     } else {
-        xSemaphoreGive(g_host_mutex);
+        wol_storage_unlock();
         cJSON_AddBoolToObject(resp, "ok", false);
         cJSON_AddStringToObject(resp, "error", "Host not found");
     }
@@ -281,7 +297,9 @@ static esp_err_t api_status_get(httpd_req_t *req)
     cJSON_AddStringToObject(resp, "tailscale_ip",        ip_str);
     cJSON_AddBoolToObject(resp,   "tailscale_connected", (vpn_ip != 0));
     cJSON_AddNumberToObject(resp, "wifi_rssi",           g_wifi_rssi);
-    cJSON_AddNumberToObject(resp, "host_count",          g_host_list ? g_host_list->count : 0);
+    wol_storage_lock();
+    cJSON_AddNumberToObject(resp, "host_count", g_host_list ? g_host_list->count : 0);
+    wol_storage_unlock();
 
     char *json = cJSON_PrintUnformatted(resp);
     cJSON_Delete(resp);
@@ -325,12 +343,6 @@ esp_err_t wol_dashboard_start(wol_host_list_t *list,
     g_get_vpn_ip = get_vpn_ip_fn;
     g_wifi_rssi  = wifi_rssi;
     g_start_time = (uint32_t)time(NULL);
-
-    g_host_mutex = xSemaphoreCreateMutex();
-    if (!g_host_mutex) {
-        ESP_LOGE(TAG, "Failed to create host mutex");
-        return ESP_FAIL;
-    }
 
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();

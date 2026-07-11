@@ -162,8 +162,14 @@ void app_main(void)
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
     wifi_init();
-    xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_BIT,
-                        pdFALSE, pdTRUE, portMAX_DELAY);
+    EventBits_t bits = xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_BIT,
+                                           pdFALSE, pdTRUE,
+                                           pdMS_TO_TICKS(30000));
+    if (!(bits & WIFI_CONNECTED_BIT)) {
+        ESP_LOGE(TAG, "WiFi connect timeout — restarting");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        esp_restart();
+    }
 
     /* --- Tailscale (MicroLink v2) --- */
     microlink_config_t config = {
@@ -186,10 +192,15 @@ void app_main(void)
 
     ESP_ERROR_CHECK(microlink_start(ml));
 
-    /* Wait for Tailscale connection */
+    /* Wait for Tailscale connection (120s timeout, then restart) */
     ESP_LOGI(TAG, "Connecting to Tailscale...");
+    int ts_retries = 0;
     while (!microlink_is_connected(ml)) {
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (++ts_retries > 120) {
+            ESP_LOGE(TAG, "Tailscale connect timeout — restarting");
+            esp_restart();
+        }
     }
 
     uint32_t vpn_ip = microlink_get_vpn_ip(ml);

@@ -124,12 +124,17 @@ static void wol_monitor_task(void *pvParameters)
 
         uint32_t now = (uint32_t)time(NULL);
 
+        wol_storage_lock();
         for (int i = 0; i < list->count; i++) {
             wol_host_t *h = &list->entries[i];
             if (h->ip[0] == '\0') continue;
 
             ESP_LOGD(TAG, "Pinging %s (%s)...", h->name, h->ip);
+
+            /* Release lock while pinging (network I/O, can take 1s+) */
+            wol_storage_unlock();
             bool online = ping_host(h->ip, 1000);
+            wol_storage_lock();
 
             wol_storage_update_online(list, h->id, online, now);
 
@@ -140,8 +145,11 @@ static void wol_monitor_task(void *pvParameters)
             }
 
             /* Small gap between pings to avoid flooding */
+            wol_storage_unlock();
             vTaskDelay(pdMS_TO_TICKS(200));
+            wol_storage_lock();
         }
+        wol_storage_unlock();
 
         ESP_LOGI(TAG, "Cycle complete. Next in %lu s",
                  (unsigned long)interval_sec);
