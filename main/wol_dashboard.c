@@ -27,8 +27,9 @@ static const char *TAG = "wol_dashboard";
 /* Shared state — set once at startup */
 static wol_host_list_t *g_host_list = NULL;
 static uint32_t (*g_get_vpn_ip)(void) = NULL;
-static int g_wifi_rssi = 0;
+static volatile int g_wifi_rssi = 0;
 static uint32_t g_start_time = 0;
+static httpd_handle_t g_server = NULL;
 
 /* ---------------------------------------------------------------------------
  * Helpers
@@ -135,11 +136,27 @@ static esp_err_t api_hosts_post(httpd_req_t *req)
         return ESP_FAIL;
     }
 
+    /* Validate name length */
+    const char *name = jn->valuestring;
+    if (strlen(name) == 0 || strlen(name) >= WOL_HOST_NAME_MAX) {
+        cJSON_Delete(body);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid name length");
+        return ESP_FAIL;
+    }
+
+    /* Validate IP format (basic: must contain dots, not empty) */
+    const char *ip = ji->valuestring;
+    if (strlen(ip) < 7 || strlen(ip) >= WOL_HOST_IP_MAX ||
+        strchr(ip, '.') == NULL) {
+        cJSON_Delete(body);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid IP format");
+        return ESP_FAIL;
+    }
+
     uint32_t new_id = 0;
     wol_storage_lock();
     esp_err_t ret = wol_storage_add(g_host_list,
-                                    jn->valuestring, mac, ji->valuestring,
-                                    &new_id);
+                                    name, mac, ip, &new_id);
     wol_storage_unlock();
 
     /* Persist to NVS outside the lock (NVS writes are slow) */
@@ -304,6 +321,11 @@ static esp_err_t api_status_get(httpd_req_t *req)
     return send_json(req, resp);
 }
 
+void wol_dashboard_set_rssi(int rssi)
+{
+    g_wifi_rssi = rssi;
+}
+
 /* ---------------------------------------------------------------------------
  * GET / — serve dashboard SPA
  * --------------------------------------------------------------------------- */
@@ -351,6 +373,7 @@ esp_err_t wol_dashboard_start(wol_host_list_t *list,
         ESP_LOGE(TAG, "Failed to start HTTP server: %d", ret);
         return ret;
     }
+    g_server = server;
 
     /* Register URI handlers */
     httpd_uri_t uri_root = {

@@ -67,6 +67,15 @@ esp_err_t wol_send_magic_packet(const char *mac_str)
         return ESP_FAIL;
     }
 
+    /* Bind to WiFi STA interface so broadcast goes out LAN, not VPN */
+    struct sockaddr_in bind_addr = {
+        .sin_family = AF_INET,
+        .sin_port   = 0,
+        .sin_addr   = { .s_addr = INADDR_ANY },
+    };
+    /* Skip bind error — broadcast still works without it on most configs */
+    bind(sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
+
     /* Enable broadcast */
     int broadcast = 1;
     if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST,

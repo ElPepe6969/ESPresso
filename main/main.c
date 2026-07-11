@@ -104,6 +104,12 @@ static void wifi_init(void)
 
 static microlink_t *ml = NULL;
 
+/* VPN IP getter for dashboard status endpoint */
+static uint32_t get_vpn_ip_cb(void)
+{
+    return ml ? microlink_get_vpn_ip(ml) : 0;
+}
+
 static void on_state_change(microlink_t *handle, microlink_state_t state,
                             void *user_data)
 {
@@ -211,11 +217,6 @@ void app_main(void)
     ESP_LOGI(TAG, "Tailscale connected! VPN IP: %s", vpn_ip_str);
 
     /* --- HTTP Dashboard Server --- */
-    /* Provide VPN IP getter callback for /api/status */
-    uint32_t get_vpn_ip_cb(void) {
-        return ml ? microlink_get_vpn_ip(ml) : 0;
-    }
-
     ESP_ERROR_CHECK(wol_dashboard_start(&host_list, get_vpn_ip_cb, -40));
 
     /* --- Host Monitor Task --- */
@@ -228,6 +229,12 @@ void app_main(void)
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(30000));
+
+        /* Update WiFi RSSI for dashboard status */
+        wifi_ap_record_t ap_info;
+        if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+            wol_dashboard_set_rssi(ap_info.rssi);
+        }
 
         /* Periodic health log + Tailscale reconnect */
         if (microlink_is_connected(ml)) {

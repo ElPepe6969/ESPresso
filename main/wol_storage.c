@@ -21,18 +21,12 @@ static SemaphoreHandle_t s_mutex = NULL;
 
 esp_err_t wol_storage_init(void)
 {
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
-        ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
-
+    /* NVS must already be initialized by main.c before calling this.
+     * We just create the mutex here. */
     s_mutex = xSemaphoreCreateMutex();
     if (!s_mutex) return ESP_ERR_NO_MEM;
 
-    ESP_LOGI(TAG, "NVS initialized");
+    ESP_LOGI(TAG, "Storage ready");
     return ESP_OK;
 }
 

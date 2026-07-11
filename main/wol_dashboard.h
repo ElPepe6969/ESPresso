@@ -26,3 +26,9 @@
 esp_err_t wol_dashboard_start(wol_host_list_t *list,
                               uint32_t (*get_vpn_ip_fn)(void),
                               int wifi_rssi);
+
+/**
+ * Update WiFi RSSI for /api/status endpoint (thread-safe).
+ * Call from idle loop or WiFi event handler every ~30s.
+ */
+void wol_dashboard_set_rssi(int rssi);
