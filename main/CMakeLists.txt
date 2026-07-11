@@ -1,0 +1,20 @@
+idf_component_register(
+    SRCS
+        main.c
+        wol_storage.c
+        wol_sender.c
+        wol_monitor.c
+        wol_dashboard.c
+    INCLUDE_DIRS
+        .
+    REQUIRES
+        microlink
+        nvs_flash
+        esp_http_server
+        esp_wifi
+        esp_event
+        esp_netif
+        lwip
+        json
+        ping
+)
