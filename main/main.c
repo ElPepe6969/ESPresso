@@ -30,6 +30,7 @@
 #include "wol_storage.h"
 #include "wol_dashboard.h"
 #include "wol_monitor.h"
+#include "led_indicator.h"
 
 static const char *TAG = "espresso";
 
@@ -167,6 +168,9 @@ void app_main(void)
              (unsigned long)esp_get_free_heap_size(),
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
+    led_init();
+    led_wifi_connecting();
+
     wifi_init();
     EventBits_t bits = xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_BIT,
                                            pdFALSE, pdTRUE,
@@ -202,6 +206,7 @@ void app_main(void)
 
     /* Wait for Tailscale connection (120s timeout, then restart) */
     ESP_LOGI(TAG, "Connecting to Tailscale...");
+    led_tailscale_connecting();
     int ts_retries = 0;
     while (!microlink_is_connected(ml)) {
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -215,6 +220,7 @@ void app_main(void)
     char vpn_ip_str[16];
     microlink_ip_to_str(vpn_ip, vpn_ip_str);
     ESP_LOGI(TAG, "Tailscale connected! VPN IP: %s", vpn_ip_str);
+    led_connected();
 
     /* --- HTTP Dashboard Server --- */
     ESP_ERROR_CHECK(wol_dashboard_start(&host_list, get_vpn_ip_cb, -40));

@@ -5,6 +5,7 @@ idf_component_register(
         wol_sender.c
         wol_monitor.c
         wol_dashboard.c
+        led_indicator.c
     INCLUDE_DIRS
         .
     REQUIRES
@@ -16,4 +17,5 @@ idf_component_register(
         esp_netif
         lwip
         json
+        driver
 )

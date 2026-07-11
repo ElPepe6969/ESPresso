@@ -12,6 +12,7 @@
 #include "wol_dashboard.h"
 #include "wol_sender.h"
 #include "wol_webui.h"
+#include "led_indicator.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -272,6 +273,7 @@ static esp_err_t api_wake_post(httpd_req_t *req)
         if (send_ret == ESP_OK) {
             cJSON_AddBoolToObject(resp, "ok", true);
             cJSON_AddStringToObject(resp, "host", name_copy);
+            led_wake_sent();
             ESP_LOGI(TAG, "Wake sent to %s (%s)", name_copy, mac_copy);
         } else {
             cJSON_AddBoolToObject(resp, "ok", false);
@@ -418,7 +420,7 @@ esp_err_t wol_dashboard_start(wol_host_list_t *list,
     };
     httpd_register_uri_handler(server, &uri_status);
 
-    /* CORS preflight for all /api/* routes */
+    /* CORS preflight for all /api/ routes */
     httpd_uri_t uri_cors = {
         .uri      = "/api/*",
         .method   = HTTP_OPTIONS,

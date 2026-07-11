@@ -1,0 +1,2 @@
+# ESPresso Kconfig — sources MicroLink's configuration options
+rsource "../components/microlink/Kconfig"

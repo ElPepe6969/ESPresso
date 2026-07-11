@@ -11,7 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-#include "esp_ping.h"
+#include "ping/ping_sock.h"
 #include "esp_log.h"
 #include "lwip/inet.h"
 
@@ -19,6 +19,10 @@ static const char *TAG = "wol_monitor";
 
 /* Semaphore signaled by ping callback on completion */
 static SemaphoreHandle_t s_ping_done = NULL;
+
+/* Forward declaration */
+static bool ping_host(esp_ping_handle_t ping, const char *ip_str,
+                      uint32_t timeout_ms);
 
 /* ---------------------------------------------------------------------------
  * Ping callbacks — signal semaphore on completion
