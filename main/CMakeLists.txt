@@ -9,7 +9,7 @@ idf_component_register(
     INCLUDE_DIRS
         .
     REQUIRES
-        microlink
+        tailscale
         nvs_flash
         esp_http_server
         esp_wifi
@@ -18,4 +18,5 @@ idf_component_register(
         lwip
         json
         driver
+        mdns
 )

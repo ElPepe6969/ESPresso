@@ -1,2 +1,31 @@
-# ESPresso Kconfig — sources MicroLink's configuration options
-rsource "../components/microlink/Kconfig"
+# ESPresso Kconfig — WiFi and Tailscale configuration
+menu "ESPresso Configuration"
+
+    config ESPRESSO_WIFI_SSID
+        string "WiFi SSID"
+        default "WirelessToaster"
+        help
+            WiFi network name.
+
+    config ESPRESSO_WIFI_PASSWORD
+        string "WiFi Password"
+        default ""
+        help
+            WiFi network password.
+
+    config ESPRESSO_TAILSCALE_AUTH_KEY
+        string "Tailscale Auth Key"
+        default ""
+        help
+            Tailscale auth key from https://login.tailscale.com/admin/settings/keys
+
+    config ESPRESSO_DEVICE_NAME
+        string "Device Name"
+        default "ESPresso"
+        help
+            Name shown in Tailscale admin.
+
+endmenu
+
+# Source Tailscale library Kconfig
+rsource "../components/tailscale/Kconfig"
