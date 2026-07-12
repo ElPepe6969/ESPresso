@@ -34,3 +34,9 @@ __pycache__/
 # ESP-IDF
 dependencies.lock
 managed_components/
+sdkconfig.defaults
+components/wireguard_lwip/
+.cache/
+build/
+managed_components/
+dependencies.lock
